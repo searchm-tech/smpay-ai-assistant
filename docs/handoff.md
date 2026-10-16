@@ -25,7 +25,14 @@ SM Pay 내부 Notion 문서를 KURE-v1로 임베딩해 Supabase pgvector에 저�
   - 결과(맥북 Intel CPU): 차원 1024, 관련 0.817 vs 무관 0.333, 배치 일관성 cos=1.0, 질문 1건 약 430ms,
     500자 청크 약 1.5초/건, 메모리 약 2.3GB, 기본 max_seq_length=8192
   - Windows 데스크탑에서는 같은 스크립트로 다시 받고 같은 테스트를 돌려 수치를 비교할 것 (B1)
-- [ ] A3 ~ A9, Phase B: `docs/design.md` 5절 참고
+- [x] A3: 임베딩 서비스 구현 완료 (브랜치 `feature/a3-embedder-service`, **미커밋**)
+  - 설계 근거: `docs/design.md`의 "A3 임베딩 서비스 설계". 코드: `embedder/app/{main,settings,schemas,service}.py`
+  - 실행: `cd embedder && EMBEDDER_SECRET=<32자 이상> .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001`
+    (`--env-file .env` 사용 가능, 예시는 `embedder/.env.example`). 워커는 1개로 둘 것(모델 2.3GB 복제 방지)
+  - 테스트: `.venv/bin/python -m pytest -q` (27개, 모델 불필요) / 실제 모델: `RUN_SLOW=1 .venv/bin/python -m pytest tests/test_service_real.py`
+  - 검증: 변형 테스트 7종(인증 우회·로그에 본문·422에 입력값·자리 미반납·대기열 제거·truncated·500 메시지)을 모두 테스트가 잡아냄
+  - 실서버 확인: 질문 1건 약 0.23초(스모크 때 0.43초보다 빠름, 서버 측 측정), 127.0.0.1만 바인딩, `/docs` 비활성, 로그에 본문 없음
+- [ ] A4 ~ A9, Phase B: `docs/design.md` 5절 참고
 
 ## 환경 메모
 - 현재 개발 머신: 맥북 **Intel(x86_64)**, macOS 15, RAM 16GB, 시스템 Python 3.9.6 (건드리지 않음)
