@@ -110,7 +110,7 @@ def create_app(
         state.pending += 1
         try:
             async with state.lock:
-                vectors, truncated = await run_in_threadpool(state.service.embed, body.texts)
+                vectors, truncated, token_counts = await run_in_threadpool(state.service.embed, body.texts)
         except Exception as e:
             # 예외 메시지에 입력 텍스트가 섞일 수 있으므로 종류만 기록하고 응답은 일반화한다.
             logger.error("request_id=%s embed_failed error=%s", request.state.request_id, type(e).__name__)
@@ -124,6 +124,7 @@ def create_app(
             dim=state.service.dim,
             embeddings=np.round(vectors, 6).tolist(),
             truncated=list(truncated),
+            token_counts=[int(n) for n in token_counts],
         )
 
     return app

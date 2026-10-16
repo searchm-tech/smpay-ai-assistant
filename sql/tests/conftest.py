@@ -47,10 +47,12 @@ def chunk(i: int, vec: list[float], content: str = "내용", revision: str = REV
     }
 
 
-def replace(conn, page_id: str, chunks: list[dict], content_hash: str = "h1", title: str = "테스트 문서"):
+def replace(
+    conn, page_id: str, chunks: list[dict], content_hash: str = "h1", title: str = "테스트 문서", signature="test-sig"
+):
     return conn.execute(
-        "select public.replace_document(%s, %s, %s, %s, %s, %s, %s)",
-        (TEST_PREFIX + page_id, title, f"https://example.com/{page_id}", None, None, content_hash, Jsonb(chunks)),
+        "select public.replace_document(%s, %s, %s, %s, %s, %s, %s, %s)",
+        (TEST_PREFIX + page_id, title, f"https://example.com/{page_id}", None, None, content_hash, signature, Jsonb(chunks)),
     ).fetchone()[0]
 
 
@@ -95,11 +97,13 @@ def dsns():
 def migrated(dsns):
     with psycopg.connect(dsns["admin"], autocommit=True, connect_timeout=15) as conn:
         try:
-            applied = conn.execute("select 1 from public.schema_migrations where version = '001'").fetchone()
+            applied = conn.execute(
+                "select count(*) from public.schema_migrations where version in ('001', '002')"
+            ).fetchone()[0] == 2
         except psycopg.errors.UndefinedTable:
-            applied = None
+            applied = False
     if not applied:
-        pytest.skip("마이그레이션 001이 적용되지 않음: `python apply_migrations.py` 를 먼저 실행")
+        pytest.skip("마이그레이션 001·002가 적용되지 않음: `python apply_migrations.py` 를 먼저 실행")
 
 
 @pytest.fixture

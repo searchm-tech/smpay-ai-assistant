@@ -125,6 +125,13 @@ def test_response_shape_order_and_normalization(client, auth):
         assert np.allclose(emb[i], FakeService.vector_for(t), atol=1e-5)
 
 
+def test_token_counts_are_returned_per_input_in_order(client, auth):
+    texts = ["가나", "가나다라마바사아", "가"]
+    body = client.post("/embed", json={"texts": texts}, headers=auth).json()
+    assert body["token_counts"] == [max(1, len(t) // 2) for t in texts]
+    assert all(isinstance(n, int) and n >= 1 for n in body["token_counts"])
+
+
 def test_truncated_flags_are_returned_per_input(client, auth):
     r = client.post("/embed", json={"texts": ["짧음", "가" * 500, "짧음2"]}, headers=auth)
     assert r.status_code == 200

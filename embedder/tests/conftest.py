@@ -40,7 +40,8 @@ class FakeService:
             raise RuntimeError("boom " + " ".join(texts))  # 메시지에 본문이 섞여 있어도 새면 안 됨
         vecs = np.stack([self.vector_for(t) for t in texts])
         truncated = [len(t) > 100 for t in texts]
-        return vecs, truncated
+        token_counts = [max(1, len(t) // 2) for t in texts]  # 가짜 토큰 수(실제 서비스는 토크나이저 결과)
+        return vecs, truncated, token_counts
 
 
 def make_settings(**kw) -> Settings:

@@ -78,15 +78,17 @@ def main() -> int:
     check("벡터 차원 1024, 입력 수와 일치", vectors.shape == (len(texts), EMBEDDING_DIM), str(vectors.shape))
     check("모델 revision 고정값", body["revision"] == REVISION, body["revision"][:8])
     check("truncated 없음", body["truncated"] == [False] * len(texts))
+    check("token_counts 가 입력 수와 같고 양수", len(body["token_counts"]) == len(texts) and all(n >= 1 for n in body["token_counts"]), str(body["token_counts"]))
     sims = vectors @ vectors.T
     check("관련 문장 > 무관 문장 유사도", sims[0, 1] > sims[0, 2], f"{sims[0, 1]:.3f} vs {sims[0, 2]:.3f}")
 
     # 3) 네이티브(맥북) 모델과 수치 일치
     from app.service import KureEmbeddingService
 
-    native, _ = KureEmbeddingService.load().embed(texts)
+    native, _, native_tokens = KureEmbeddingService.load().embed(texts)
     cos = (vectors * native).sum(axis=1)  # 둘 다 정규화되어 있어 내적 = 코사인
     check("컨테이너 vs 네이티브 cos >= 0.999", cos.min() >= 0.999, f"min={cos.min():.6f}")
+    check("컨테이너 vs 네이티브 토큰 수 일치", body["token_counts"] == [int(n) for n in native_tokens])
 
     # 4) 포트 노출 범위: 호스트의 LAN IP로는 접속이 거부되어야 한다
     ports = docker("port", NAME)
