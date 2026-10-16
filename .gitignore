@@ -1,0 +1,25 @@
+# python
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# model & cache (용량 큼, 각 머신에서 내려받음)
+.cache/
+models/
+*.safetensors
+*.bin
+
+# vercel
+.vercel/
+
+# misc
+.DS_Store
+*.log

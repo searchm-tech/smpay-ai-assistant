@@ -1,0 +1,23 @@
+[project]
+name = "smpay-embedder"
+version = "0.1.0"
+description = "KURE-v1 임베딩 서비스 (회사 데스크탑에서 구동)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # torch 2.2.2와 호환되는 구버전 계열로 고정 (transformers 5.x는 더 새로운 torch를 요구함)
+    "sentence-transformers>=3.0,<4",
+    "transformers>=4.44,<4.50",
+    "numpy<2",
+    # Intel Mac(x86_64)은 PyTorch가 2.2.2까지만 배포됨 → 2.2.2로 고정.
+    # 그 외(Windows)는 하한만 두지만, 위 transformers 4.x 제약 때문에 lock에서는 같은 2.2.2로 풀려
+    # 맥북과 데스크탑의 동작이 동일하다. Windows만 올리려면 transformers 상한도 함께 풀어야 함.
+    "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.2.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
+
+[tool.uv]
+# 개발/배포 대상 플랫폼만 해석 (맥북 Intel, 회사 Windows 데스크탑)
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32'",
+]
