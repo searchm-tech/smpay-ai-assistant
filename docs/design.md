@@ -131,6 +131,24 @@
 - **A5 시작 전 사용자 준비물**: Notion 내부 통합 생성(워크스페이스 관리자 권한이 필요할 수 있음) → "Read content"만 선택 → 토큰을 `.env`의 `NOTION_TOKEN`에 저장(채팅에 붙이지 않기) →
   수집할 루트 페이지 각각에서 ••• → Connections로 통합 연결 → 그 페이지 URL을 `NOTION_ROOT_PAGE_IDS`에 저장.
 
+### A3-Docker 임베딩 서비스 컨테이너 `smpay-kure-model` (2026-10-16 확정, 구현·검증 완료)
+
+| 결정 | 이유 |
+|---|---|
+| 이미지 `python:3.12-slim` 2단계 빌드, `uv sync --frozen --no-dev` | lock 그대로 설치해 맥북·Windows와 같은 버전을 보장. 개발 의존성 제외 |
+| `uv.lock`에 `linux x86_64` 해석과 CPU 전용 torch(`2.2.2+cpu`, `download.pytorch.org/whl/cpu`) 추가 | 버전 출처를 uv.lock 하나로 유지. PyPI의 linux torch는 CUDA 라이브러리를 끌어와 수 GB. 고정하지 않으면 최신판(2.14)이 선택되어 linux도 2.2.2로 고정. 다른 패키지 버전은 변하지 않음을 diff로 확인 |
+| 모델 가중치는 이미지에 넣지 않고 `.cache/huggingface`를 **읽기 전용 마운트** | 이미지가 작고 재빌드가 빠름. 모델 교체와 코드 배포를 분리 |
+| 호스트로는 `127.0.0.1:8001`에만 publish, 컨테이너 안은 `0.0.0.0` | 컨테이너 안 loopback은 호스트에서 접근 불가. 노출 범위는 publish가 결정(LAN 접속 거부로 검증) |
+| 비루트(uid 10001), `--read-only`+tmpfs, `--cap-drop ALL`, `no-new-privileges`, 메모리 4GB | 침해 시 피해 범위 축소. 쓰기는 /tmp 메모리 디스크만 |
+| 비밀값은 `embedder/.env`(git 제외)를 `--env-file`로만 전달. 이미지·Dockerfile에는 없음 | 이미지가 공유·저장되어도 비밀이 새지 않게 |
+| 실행 `scripts/docker_run.sh`, 검증 `scripts/docker_smoke.py`, 정적 테스트 `tests/test_docker_static.py` | 구성이 바뀌면 테스트가 잡도록 |
+
+검증(2026-10-16): 정적 테스트 8개, 컨테이너 스모크 18항목 통과(401, 1024차원, revision 고정, 네이티브 대비 cos min 1.000000, LAN 접속 거부, 로그에 본문·시크릿 없음, 보안 설정).
+변형 테스트: 0.0.0.0 publish·읽기 전용 해제·캐시 rw 마운트는 스모크가 잡았고, 짧은 시크릿·모델 캐시 없음은 기동을 거부(로그에 시크릿 없음).
+성능: 기동(헬시까지) 약 30초, 질문 1건 서버 측 약 180~270ms(네이티브 약 230ms), 메모리 약 1.1GiB(docker stats 기준, 모델 파일 페이지 캐시 제외 가능). kill 후 `docker start`로 약 15초 만에 복구.
+
+**한계**: ① 이미지는 linux/amd64 한정(ARM 서버 불가). ② Windows 데스크탑에서 Docker Desktop(WSL2)을 쓸지, 네이티브 Python 서비스로 갈지는 B1에서 결정 — 이 구성은 그 선택지 중 하나를 검증해 둔 것. ③ `--restart on-failure:3`은 로컬 테스트용 값이며 상시 구동 정책은 B2에서 정한다. ④ `/health`는 인증 없이 `ok`만 반환(모델 로딩 여부는 컨테이너 HEALTHCHECK가 이 응답으로 판단).
+
 ## 3. 아키텍처
 
 ```
@@ -164,3 +182,4 @@ Phase B (Windows 데스크탑): B1 환경 재현 → B2 상시 구동 → B3 고
 ## 6. 변경 기록
 
 - 2026-10-16: 새 레포에서 처음부터 재시작. 결정 사항 확정(위 표), A0 구조 생성.
+- 2026-10-16: A3-Docker. 임베딩 서비스를 `smpay-kure-model` 컨테이너로 구동·검증(uv.lock에 linux CPU torch 추가).

@@ -84,5 +84,13 @@ SQL
 - **남은 일**: ① 사용자가 Notion 통합(Read content만)·토큰·루트 페이지 준비 ② `measure`를 실제로 실행해 **실제 마크다운 형식 대조(R11)**, 문서 수·길이·민감정보 적중 확인 ③ 결과로 A6의 청크 크기와 A4 보류 항목(인덱스) 결정
 - 토큰이 필요한 이유: 지금까지 모든 검증은 공식 문서 기반으로 추정한 형식의 가짜 응답이다. **실제 응답과 다르면 정제기가 틀릴 수 있다**
 
+## A3-Docker: 임베딩 서비스 컨테이너 (브랜치 `feature/a3-docker`, a5 위에서 분기, **미커밋**)
+- 설계·검증: `docs/design.md`의 "A3-Docker". 이미지/컨테이너 이름 `smpay-kure-model`
+- 빌드·실행: `cd embedder && docker build --platform linux/amd64 -t smpay-kure-model . && scripts/docker_run.sh`
+  (`embedder/.env`의 `EMBEDDER_SECRET` 필요, 모델 캐시 `embedder/.cache/huggingface`를 읽기 전용 마운트, `127.0.0.1:8001`)
+- 검증: `cd embedder && .venv/bin/python scripts/docker_smoke.py` (컨테이너가 떠 있어야 함) / 정적: `pytest tests/test_docker_static.py`
+- 중지·삭제: `docker rm -f smpay-kure-model`
+- 주의: 이 변경으로 `embedder/pyproject.toml`·`uv.lock`이 수정됨(linux 추가). 맥북·Windows 쪽 패키지 버전은 변하지 않음(diff 확인)
+
 ## 사용자 확인 대기 중
 - R1: 수집 대상을 Notion 루트 페이지 **허용 목록**으로 제한하는 것에 동의하는지
