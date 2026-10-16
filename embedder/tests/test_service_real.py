@@ -39,3 +39,6 @@ def test_real_model_dim_similarity_and_truncation(real_client):
     assert body["revision"] == "8b418a58414668e75532ed045c22d9ca018ae2b2"
     assert float(emb[0] @ emb[1]) > float(emb[0] @ emb[2]) + 0.1  # 관련 > 무관
     assert body["truncated"] == [False, False, False, True]
+    counts = body["token_counts"]
+    assert len(counts) == 4 and all(isinstance(n, int) and n >= 1 for n in counts)
+    assert counts[3] > 512 and counts[0] < 64  # 잘린 입력은 상한을 넘는 실제 토큰 수를 보고한다

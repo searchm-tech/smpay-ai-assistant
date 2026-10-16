@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -16,6 +17,7 @@ from notion_ingest.notion_client import (
     PageMeta,
 )
 from notion_ingest.scanner import scan_sensitive
+from notion_ingest.timeutil import normalize_time
 
 
 class NotionLike(Protocol):
@@ -77,10 +79,15 @@ def crawl(
     max_pages: int = 5000,
     max_depth: int = 30,
     max_followups: int = 20,
+    reindex_ids: Collection[str] = (),
 ) -> CrawlResult:
     """BFS 크롤. 모든 페이지의 markdown을 매번 조회한다(자식은 부모 markdown의 <page> 태그로만 발견되므로
-    변경 없는 페이지도 건너뛸 수 없다). 변경 판단은 정제 텍스트의 해시로 한다."""
+    변경 없는 페이지도 건너뛸 수 없다). 변경 판단은 정제 텍스트의 해시로 한다.
+
+    reindex_ids: 내용이 같아도 다시 처리해야 하는 문서(인덱스 서명이 달라진 문서 등). 이미 DB에 있는 문서 중
+    unchanged/metadata_only 가 될 것을 changed 로 바꿔 텍스트를 채운다. 새 문서와 크롤되지 않은 id 에는 영향이 없다."""
     previous = previous or {}
+    reindex_set = set(reindex_ids)
     result = CrawlResult()
     reasons: set[str] = set()
 
@@ -177,8 +184,12 @@ def crawl(
             status = "new"
         elif prev.content_hash != digest:
             status = "changed"
+        elif page_id in reindex_set:
+            status = "changed"
+        elif prev.title != meta.title:  # 제목은 임베딩 입력(제목 > 헤딩 경로)에 들어가므로 내용 변경으로 본다
+            status = "changed"
         elif (
-            prev.last_edited_time == meta.last_edited_time
+            normalize_time(prev.last_edited_time) == normalize_time(meta.last_edited_time)
             and prev.title == meta.title
             and (prev.breadcrumb or "") == breadcrumb_text
         ):

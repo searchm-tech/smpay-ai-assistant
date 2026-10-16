@@ -161,12 +161,19 @@ def test_status_is_changed_when_content_hash_differs(fake):
     assert b.status == "changed" and b.text
 
 
-@pytest.mark.parametrize("override", [{"last_edited_time": "2026-09-01T00:00:00.000Z"}, {"title": "옛 제목"}, {"breadcrumb": "옛 부모"}])
+@pytest.mark.parametrize("override", [{"last_edited_time": "2026-09-01T00:00:00.000Z"}, {"breadcrumb": "옛 부모"}])
 def test_status_is_metadata_only_when_only_metadata_differs_so_no_reembedding(fake, override):
     build_tree(fake)
     r = crawl(fake, [pid(1)], previous={pid(3): prev_for(fake, 3, **{"breadcrumb": "루트", **override})})
     b = next(d for d in r.documents if d.title == "B")
     assert b.status == "metadata_only" and b.text is None
+
+
+def test_a_title_change_is_a_content_change_because_the_title_is_part_of_the_embedding_input(fake):
+    build_tree(fake)
+    r = crawl(fake, [pid(1)], previous={pid(3): prev_for(fake, 3, title="옛 제목", breadcrumb="루트")})
+    b = next(d for d in r.documents if d.title == "B")
+    assert b.status == "changed" and b.text
 
 
 # ---------- 잘림(truncated) 후속 조회 ----------
@@ -204,3 +211,44 @@ def test_sensitive_hits_are_recorded_per_document_as_counts(fake):
     doc = crawl(fake, [pid(1)]).documents[0]
     assert doc.sensitive_hits.get("email") == 1 and doc.sensitive_hits.get("phone_kr") == 1
     assert doc.char_count == len(doc.text)
+
+
+# ---------- A6: 수정 시각 형식과 강제 재색인 ----------
+
+def test_a_db_style_timestamp_for_the_same_instant_is_not_mistaken_for_a_change(fake):
+    fake.add(1, "문서", "# 문서\n본문", last_edited="2026-10-01T00:00:00.000Z")
+    for stored in ("2026-10-01T00:00:00+00:00", "2026-10-01T09:00:00+09:00", "2026-10-01T00:00:00.000Z", "2026-10-01 00:00:00+00"):
+        r = crawl(fake, [pid(1)], {pid(1): prev_for(fake, 1, last_edited_time=stored)})
+        assert r.documents[0].status == "unchanged", stored
+
+
+def test_a_different_instant_with_the_same_text_is_metadata_only(fake):
+    fake.add(1, "문서", "# 문서\n본문", last_edited="2026-10-02T00:00:00.000Z")
+    r = crawl(fake, [pid(1)], {pid(1): prev_for(fake, 1, last_edited_time="2026-10-01T00:00:00+00:00")})
+    assert r.documents[0].status == "metadata_only" and r.documents[0].text is None
+
+
+def test_unparseable_timestamps_fall_back_to_plain_comparison(fake):
+    fake.add(1, "문서", "# 문서\n본문", last_edited="not-a-time")
+    same = crawl(fake, [pid(1)], {pid(1): prev_for(fake, 1, last_edited_time="not-a-time")})
+    other = crawl(fake, [pid(1)], {pid(1): prev_for(fake, 1, last_edited_time="other")})
+    assert same.documents[0].status == "unchanged" and other.documents[0].status == "metadata_only"
+
+
+def test_reindex_ids_turn_unchanged_and_metadata_only_documents_into_changed_with_text(fake):
+    build_tree(fake)
+    crumbs = {1: "", 2: "루트", 3: "루트", 4: "루트 > A"}
+    previous = {pid(n): prev_for(fake, n, breadcrumb=crumbs[n]) for n in (1, 2, 3, 4)}
+    previous[pid(3)] = prev_for(fake, 3, breadcrumb="옛 부모")  # metadata_only 가 될 문서
+    r = crawl(fake, [pid(1)], previous, reindex_ids={pid(2), pid(3)})
+    by_title = {d.title: d for d in r.documents}
+    assert by_title["A"].status == "changed" and by_title["A"].text
+    assert by_title["B"].status == "changed" and by_title["B"].text
+    assert by_title["루트"].status == "unchanged" and by_title["루트"].text is None
+    assert by_title["A1"].status == "unchanged"
+
+
+def test_reindex_ids_do_not_change_new_documents_or_ids_that_were_not_crawled(fake):
+    build_tree(fake)
+    r = crawl(fake, [pid(1)], {}, reindex_ids={pid(2), pid(99)})
+    assert {d.status for d in r.documents} == {"new"}

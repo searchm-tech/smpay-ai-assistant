@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from notion_ingest.ids import normalize_page_id
 
@@ -75,4 +76,62 @@ class Settings:
             root_page_ids=parse_root_ids(env.get("NOTION_ROOT_PAGE_IDS", "")),
             rate_per_sec=_number(env, "NOTION_RATE_PER_SEC", "2.5", float, "a positive number"),
             max_pages=_number(env, "NOTION_MAX_PAGES", "5000", int, "a positive integer"),
+        )
+
+
+MIN_EMBEDDER_SECRET_LENGTH = 32  # 임베딩 서버(embedder)가 기동 시 요구하는 최소 길이와 같다
+DEFAULT_EMBEDDER_URL = "http://127.0.0.1:8001"
+
+
+def writer_dsn(environ: Mapping[str, str]) -> str:
+    """ingest_writer 접속 문자열. INGEST_DATABASE_URL 이 있으면 그대로 쓰고, 없으면 개발 편의상
+    DATABASE_ADMIN_URL 의 호스트에 INGEST_WRITER_PASSWORD 로 접속한다(Supabase 풀러는 사용자명이 `역할.프로젝트ref`).
+    운영(회사 데스크탑)에서는 관리자 URL을 두지 말고 INGEST_DATABASE_URL 만 둔다. 동기화는 세션 잠금을 쓰므로 풀러는 세션 모드(5432)."""
+    direct = clean_env_value(environ.get("INGEST_DATABASE_URL", ""))
+    if direct:
+        return direct
+    admin = clean_env_value(environ.get("DATABASE_ADMIN_URL", ""))
+    password = clean_env_value(environ.get("INGEST_WRITER_PASSWORD", ""))
+    if not admin or not password:
+        raise ConfigError("set INGEST_DATABASE_URL (or DATABASE_ADMIN_URL together with INGEST_WRITER_PASSWORD)")
+    user = conninfo_to_dict(admin).get("user", "")
+    project_ref = user.split(".", 1)[1] if "." in user else None
+    return make_conninfo(admin, user=f"ingest_writer.{project_ref}" if project_ref else "ingest_writer", password=password)
+
+
+def parse_allow_list(raw: str) -> frozenset[str]:
+    """색인을 허용할 민감 문서(고위험 패턴이 보여도 사람이 확인한 문서)의 페이지 ID 목록. 비어 있어도 된다."""
+    entries = [e for e in (clean_env_value(p) for p in re.split(r"[,\s;]+", raw or "")) if e]
+    ids: set[str] = set()
+    for index, entry in enumerate(entries, start=1):
+        page_id = normalize_page_id(entry)
+        if page_id is None:
+            raise ConfigError(f"INGEST_ALLOW_SENSITIVE_PAGE_IDS entry #{index} is not a valid Notion page id or URL")
+        ids.add(page_id)
+    return frozenset(ids)
+
+
+@dataclass(frozen=True)
+class SyncSettings:
+    notion: Settings
+    database_url: str = field(repr=False)  # 비밀번호 포함
+    embedder_secret: str = field(repr=False)
+    embedder_url: str = DEFAULT_EMBEDDER_URL
+    allow_sensitive: frozenset[str] = frozenset()
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> "SyncSettings":
+        env = os.environ if environ is None else environ
+        secret = clean_env_value(env.get("EMBEDDER_SECRET", ""))
+        if len(secret) < MIN_EMBEDDER_SECRET_LENGTH:
+            raise ConfigError(f"EMBEDDER_SECRET must be set and at least {MIN_EMBEDDER_SECRET_LENGTH} characters long")
+        url = clean_env_value(env.get("EMBEDDER_URL", "")) or DEFAULT_EMBEDDER_URL
+        if not re.fullmatch(r"https?://[^\s/]+(?::\d+)?(?:/\S*)?", url):
+            raise ConfigError("EMBEDDER_URL must be an http(s) URL")
+        return cls(
+            notion=Settings.from_env(env),
+            database_url=writer_dsn(env),
+            embedder_secret=secret,
+            embedder_url=url,
+            allow_sensitive=parse_allow_list(env.get("INGEST_ALLOW_SENSITIVE_PAGE_IDS", "")),
         )

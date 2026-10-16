@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "psycopg[binary]>=3.2",
 ]
 
 [tool.uv]
@@ -20,3 +21,7 @@ dev = ["pytest>=8"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "db: 실제 Postgres(로컬 일회용 DB 또는 Supabase)가 필요한 테스트. 환경변수가 없으면 건너뜀",
+    "e2e: 실제 임베딩 서버와 로컬 DB가 필요한 end-to-end 테스트",
+]

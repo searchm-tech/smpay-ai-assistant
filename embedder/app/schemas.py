@@ -19,3 +19,4 @@ class EmbedResponse(BaseModel):
     dim: int
     embeddings: list[list[float]]
     truncated: list[bool]
+    token_counts: list[int]  # 입력별 실제 토큰 수(자르기 전). 512 초과면 truncated

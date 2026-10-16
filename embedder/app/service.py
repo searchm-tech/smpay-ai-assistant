@@ -17,8 +17,8 @@ class EmbeddingService(Protocol):
     revision: str
     dim: int
 
-    def embed(self, texts: list[str]) -> tuple[np.ndarray, list[bool]]:
-        """(정규화된 임베딩 (n, dim), 입력별 잘림 여부)를 입력 순서대로 반환한다."""
+    def embed(self, texts: list[str]) -> tuple[np.ndarray, list[bool], list[int]]:
+        """(정규화된 임베딩 (n, dim), 입력별 잘림 여부, 입력별 토큰 수)를 입력 순서대로 반환한다."""
         ...
 
 
@@ -50,9 +50,10 @@ class KureEmbeddingService:
         service.embed(["워밍업"])  # 첫 요청이 느리지 않도록 한 번 돌려둔다
         return service
 
-    def embed(self, texts: list[str]) -> tuple[np.ndarray, list[bool]]:
+    def embed(self, texts: list[str]) -> tuple[np.ndarray, list[bool], list[int]]:
         ids = self._model.tokenizer(texts, add_special_tokens=True, truncation=False)["input_ids"]
-        truncated = [len(token_ids) > MAX_TOKENS for token_ids in ids]
+        token_counts = [len(token_ids) for token_ids in ids]
+        truncated = [count > MAX_TOKENS for count in token_counts]
         vectors = self._model.encode(
             texts,
             batch_size=16,
@@ -60,4 +61,4 @@ class KureEmbeddingService:
             convert_to_numpy=True,
             show_progress_bar=False,
         )
-        return vectors, truncated
+        return vectors, truncated, token_counts

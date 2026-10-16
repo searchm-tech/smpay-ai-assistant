@@ -57,7 +57,7 @@ def test_chat_reader_can_only_search(db):
         "insert into public.documents (notion_page_id, title, url, content_hash) values ('__test__x', 't', 'u', 'h')",
         "update public.chunks set content = 'x'",
         "delete from public.chunks",
-        "select public.replace_document('__test__a', 't', 'u', null, null, 'h', '[]'::jsonb)",
+        "select public.replace_document('__test__a', 't', 'u', null, null, 'h', 'sig', '[]'::jsonb)",
         "select public.delete_documents_not_in(array['x'])",
     ]:
         with pytest.raises(DENIED):
@@ -105,7 +105,7 @@ def test_empty_chunk_content_is_rejected(db):
 def test_chunks_must_be_a_json_array(db):
     with pytest.raises(psycopg.Error):
         db.ingest.execute(
-            "select public.replace_document(%s, 't', 'u', null, null, 'h', '{}'::jsonb)", (TEST_PREFIX + "obj",)
+            "select public.replace_document(%s, 't', 'u', null, null, 'h', 'sig', '{}'::jsonb)", (TEST_PREFIX + "obj",)
         )
     assert count_docs(db.admin, "obj") == 0
 

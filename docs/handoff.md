@@ -1,6 +1,6 @@
 # 인수인계 문서 (세션이 끊겨도 이어받기 위한 현재 상태)
 
-> 마지막 갱신: 2026-10-16
+> 마지막 갱신: 2026-10-16 (A6 구현 완료)
 
 ## 한 줄 요약
 SM Pay 내부 Notion 문서를 KURE-v1로 임베딩해 Supabase pgvector에 저장하고, 질문에 근거+출처로 답하는 챗 서버를 만든다.
@@ -91,6 +91,15 @@ SQL
 - 검증: `cd embedder && .venv/bin/python scripts/docker_smoke.py` (컨테이너가 떠 있어야 함) / 정적: `pytest tests/test_docker_static.py`
 - 중지·삭제: `docker rm -f smpay-kure-model`
 - 주의: 이 변경으로 `embedder/pyproject.toml`·`uv.lock`이 수정됨(linux 추가). 맥북·Windows 쪽 패키지 버전은 변하지 않음(diff 확인)
+
+## A6: 청크·임베딩·적재·동기화 (브랜치 `feature/a6-sync`, **미커밋**)
+- 설계·검증·한계: `docs/design.md`의 "A6". 코드: `ingest/notion_ingest/{chunker,embed_client,store,sync,sync_report,timeutil}.py`, `sql/002_sync.sql`
+- 실행: `cd ingest && .venv/bin/python -m notion_ingest sync --dry-run` (계획만) → `sync` (실제). 옵션 `--limit N` `--force-reindex` `--force-delete` `--json`
+  - 설정(레포 루트 `.env`, `.env.example` 참고): `NOTION_TOKEN`, `NOTION_ROOT_PAGE_IDS`, `EMBEDDER_SECRET`(+`EMBEDDER_URL`), `INGEST_DATABASE_URL`(또는 개발용 `DATABASE_ADMIN_URL`+`INGEST_WRITER_PASSWORD`), 선택 `INGEST_ALLOW_SENSITIVE_PAGE_IDS`
+  - **적용 순서**: ① `cd sql && .venv/bin/python apply_migrations.py` (002 포함, 코드보다 DB 먼저) ② 임베딩 서버 컨테이너를 **새 이미지로 재빌드**(`token_counts` 추가): `cd embedder && docker build --platform linux/amd64 -t smpay-kure-model . && scripts/docker_run.sh` ③ `sync`
+- 테스트: `cd ingest && .venv/bin/python -m pytest -q` (DB·임베딩 서버 없이 248개). DB·e2e까지는 로컬 일회용 DB(위 레시피) + `EMBEDDER_URL`/`EMBEDDER_SECRET` + `CHAT_READER_PASSWORD` 환경변수로 264개. e2e는 로컬 호스트의 **빈 DB**에서만 실행됨
+- 이번에 바뀐 기존 동작: ① `replace_document` 7인자 삭제 → 8인자(서명) ② embedder `/embed` 응답에 `token_counts` ③ 제목 변경은 `changed` ④ `ingest`에 `psycopg[binary]` 의존성 추가(`uv.lock` 갱신, 기존 버전 변화 없음)
+- **남은 일**: ① 실제 Supabase 적용 후 `sync --dry-run` → 예상 청크 수 확인 → `sync` (R8·R11·R13 확인) ② `measure`·dry-run 결과로 청크 크기 확정 ③ 실패 알림(B4) ④ 브랜치 정리: 현재 `feature/a6-sync`에 **A3-Docker 변경(Dockerfile 등)과 A6 변경이 함께 미커밋**으로 있다. 커밋할 때 둘을 나눠서 커밋할 것(a3-docker 분 → a6 분)
 
 ## 사용자 확인 대기 중
 - R1: 수집 대상을 Notion 루트 페이지 **허용 목록**으로 제한하는 것에 동의하는지
