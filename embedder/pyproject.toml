@@ -12,7 +12,9 @@ dependencies = [
     # 그 외(Windows)는 하한만 두지만, 위 transformers 4.x 제약 때문에 lock에서는 같은 2.2.2로 풀려
     # 맥북과 데스크탑의 동작이 동일하다. Windows만 올리려면 transformers 상한도 함께 풀어야 함.
     "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "torch>=2.2.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "torch>=2.2.2; sys_platform == 'win32'",
+    # linux(Docker)도 같은 2.2.2로 고정해 세 환경의 동작을 맞춘다. 고정하지 않으면 CPU 인덱스의 최신판이 선택된다.
+    "torch==2.2.2; sys_platform == 'linux'",
     "fastapi>=0.143.2",
     "uvicorn>=0.54.0",
     "python-dotenv>=1.2.4",
@@ -23,7 +25,18 @@ dependencies = [
 environments = [
     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "sys_platform == 'win32'",
+    # Docker 컨테이너(smpay-kure-model)용. Docker Desktop(Intel Mac, Windows WSL2)은 linux/amd64로 돈다.
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
+
+# linux는 PyPI의 torch가 CUDA 라이브러리(수 GB)를 함께 끌어오므로 CPU 전용 휠을 쓴다.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [
