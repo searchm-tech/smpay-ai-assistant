@@ -76,5 +76,13 @@ SQL
 3. 연결 문자열을 **채팅에 붙이지 말고** `embedder`가 아닌 레포 루트 쪽 `.env`(커밋 금지)에 직접 저장
    - 마이그레이션용 관리자 연결(세션 풀러), 그리고 `CHAT_READER_PASSWORD`/`INGEST_WRITER_PASSWORD`로 쓸 임의의 긴 값 2개
 
+## A5 진행 상태
+- [x] **구현 완료, 가짜 응답으로 검증** (브랜치 `feature/a5-notion-ingest`, **미커밋**). 설계: `docs/design.md` "A5 Notion 수집 설계" (구현 중 **정정**: markdown을 매번 전부 조회 — 이유는 그 절 참고)
+- 코드: `ingest/notion_ingest/`. 테스트: `cd ingest && .venv/bin/python -m pytest -q` (119개, 네트워크·토큰 불필요). 변형 테스트 28종 전부 탐지
+- 실행(측정, DB 쓰기 없음): `cd ingest && .venv/bin/python -m notion_ingest measure [--json] [--max-pages N] [--no-titles]`
+  → 설정은 레포 루트 `.env`의 `NOTION_TOKEN`, `NOTION_ROOT_PAGE_IDS` (`.env.example` 참고). 설정이 없으면 시작을 거부한다
+- **남은 일**: ① 사용자가 Notion 통합(Read content만)·토큰·루트 페이지 준비 ② `measure`를 실제로 실행해 **실제 마크다운 형식 대조(R11)**, 문서 수·길이·민감정보 적중 확인 ③ 결과로 A6의 청크 크기와 A4 보류 항목(인덱스) 결정
+- 토큰이 필요한 이유: 지금까지 모든 검증은 공식 문서 기반으로 추정한 형식의 가짜 응답이다. **실제 응답과 다르면 정제기가 틀릴 수 있다**
+
 ## 사용자 확인 대기 중
 - R1: 수집 대상을 Notion 루트 페이지 **허용 목록**으로 제한하는 것에 동의하는지
