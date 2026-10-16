@@ -52,6 +52,39 @@
 - **로그/오류**: 요청 ID·개수·총 글자 수·소요 시간·상태코드만. 텍스트 미기록, 422 응답/로그에서 입력값 제거. `HF_HUB_OFFLINE=1`.
 - **테스트(실패 케이스 우선)**: 401 동일 응답 / 비밀값 없음·짧음 기동 실패 / 422 경계값 / 입력값 비노출 / truncated / 503 / 순서·차원·정규화 / health 무인증 / (느린) 실제 모델 유사도 순서.
 
+### A4 Supabase + pgvector 스키마 설계 (2026-10-16 확정, 구현·로컬 검증 완료 / 실제 Supabase 적용 대기)
+
+- **테이블**: `documents`(Notion 페이지 1행: `notion_page_id` unique, title, url, breadcrumb, `content_hash`, `notion_last_edited_at`, `synced_at`),
+  `chunks`(`document_id` FK **on delete cascade**, `chunk_index`, `heading_path`, content, `token_count`, `truncated`,
+  `embedding vector(1024)`, `embedding_model`, `embedding_revision`, unique(document_id, chunk_index)).
+  삭제된 문서는 soft delete 없이 행을 지워 벡터도 함께 제거(삭제 문서가 검색에 남는 것이 가장 위험).
+  모델/버전을 청크마다 저장 → 재임베딩 대상 식별, 검색은 **같은 revision끼리만** 비교.
+- **함수**: `replace_document(...)`(문서 upsert + 청크 교체를 한 트랜잭션, 실패 시 옛 청크 유지),
+  `match_chunks(임베딩, revision, limit, 후보 문서 id 배열|null)`(cosine 유사도 = 1 − 거리, 후보 id는 지금 항상 null이지만 권한 필터용 자리),
+  `delete_documents_not_in(...)`(동기화 시 삭제 정리, A6).
+- **접근 방식(결정)**: REST+secret 키 대신 **직접 Postgres 연결 + 역할 분리**. `chat_reader`는 `match_chunks` 실행만, `ingest_writer`는 쓰기 함수만.
+  이유: 챗 서버(Vercel)가 유출돼도 검색만 가능 → **청크에 지시문을 심는 인덱스 오염(프롬프트 인젝션) 방지**. 두 테이블은 RLS 켜고 정책 없음(anon 차단), 함수는 PUBLIC 실행 권한 회수.
+  역할 비밀번호는 마이그레이션 SQL에 쓰지 않고 `.env`의 값으로 스크립트가 설정(커밋 금지).
+- **마이그레이션(결정)**: `sql/NNN_*.sql` 추가 전용 + `scripts/apply_migrations.py`가 번호순 적용하고 적용 기록 테이블(`schema_migrations`)에 남김. 코드 배포 전에 DB 먼저.
+- **인덱스**: A4에서는 만들지 않음(정확 검색). 순위가 흔들리는 근사 인덱스는 A7 기준 점수 평가를 어지럽힘. 용량: 청크 1개 약 6KB → 1만 개 약 60MB(무료 500MB 이내).
+  - **실측(2026-10-16, 로컬 Docker pgvector 17, Intel Mac CPU)**: 합성 2만 청크 정확 검색 **왕복 약 220ms**(DB 내부 210~300ms). 즉 1천 청크당 약 10ms.
+    **설계 시 "수십 ms 안쪽"이라 한 추정은 낙관적이었다.** 1만 청크면 약 100ms, 5천이면 약 50ms로 추정. 실제 Supabase 무료 티어(공유 CPU)는 다를 수 있어 **적용 후 재측정 필요**.
+  - **결정 보류 → A5에서 실제 청크 수가 나오면 확정**: 약 5천 이하면 인덱스 불필요, 약 1만 이상이면 HNSW 도입 검토. 도입 시에도 A7에서
+    **정확 검색 결과를 정답으로 삼아 recall@k ≥ 0.99를 확인**한 뒤 적용(질문 임베딩에 이미 약 0.2초 + 터널 왕복이 들므로 DB 지연 예산을 함께 본다).
+- **구현 중 추가·발견한 것**: (1) `match_chunks`는 질문 벡터 차원이 1024가 아니면 **오류를 낸다** — 검증 전 버전은 청크가 하나도 없을 때 차원이 틀려도 조용히 빈 결과를
+  돌려줘 임베딩 버그를 가릴 수 있었음. (2) `match_chunks(후보 id=[])`는 "제한 없음"이 아니라 **"후보 없음"** (빈 배열이 권한 우회가 되지 않게). (3) 역할 설정(`statement_timeout`)은
+  DB가 아니라 클러스터 전체에 저장되고 마이그레이션은 1회만 실행되므로, 누가 역할 설정을 초기화하면 이탈한다 → 테스트가 감시. (4) 적용 기록 체크섬은 줄바꿈(CRLF/LF)을 정규화해 Windows 체크아웃에서 오탐이 없게 함.
+  (5) 역할 비밀번호는 평문 `ALTER ROLE ... PASSWORD` 대신 **클라이언트에서 만든 SCRAM-SHA-256 검증값**으로 설정(서버 로그에 평문이 남지 않음).
+- **검증 범위와 한계**: 로컬 일회용 PostgreSQL 17 + pgvector(Docker)에 Supabase의 기본 역할·기본 권한(anon/authenticated 자동 부여)을 흉내 내어 검증.
+  SQL 정적 검사 + 변형 테스트(SQL 12종, 전부 탐지) + 실제 DB 테스트 19개 + 실제 KURE-v1 벡터 end-to-end 통과.
+  **로컬과 Supabase의 차이로 아직 미검증**: 풀러(Supavisor) 연결·사용자명 `역할.프로젝트ref`(R8), Supabase의 비-superuser `postgres` 권한, 실제 지연 → 프로젝트 생성 후 같은 테스트로 확인.
+- **범위 밖(의도적 보류)**: `sync_runs` 같은 배치 이력 테이블(A6에서 추가), Notion 블록 단위 딥링크(추가로 가능), 대화 로그 저장(로그에 본문을 남기지 않는 원칙).
+- **테스트(실제 Supabase, 롤백 트랜잭션)**: anon 차단 / 역할별 실행 권한 / 차원 불일치 거부 / 중복·cascade / `replace_document` 원자성 / 재동기화 시 청크 수 불변 /
+  revision·삭제 문서 제외 / A3 실제 벡터로 순서 확인 / 합성 2만 건 지연.
+- **위험 R8 — 연결 방식**: Supabase 직접 연결(db.<ref>.supabase.co)은 IPv6 위주라 Vercel·사내망에서 안 될 수 있음 → **Supavisor 풀러**
+  (챗 서버는 트랜잭션 모드 6543 + prepared statement 비활성, 마이그레이션·배치는 세션 모드 5432). 풀러에서는 사용자명이 `역할.프로젝트ref` 형식. A4에서 실제로 연결해 확인한다.
+- **위험 R9 — 무료 티어 일시정지**: 무료 프로젝트는 1주 무활동 시 정지됨. 일 1회 동기화 배치가 DB를 호출하므로 사실상 방지되지만, 배치가 멈추면 정지될 수 있음(운영 단계에서 모니터링).
+
 ## 3. 아키텍처
 
 ```
