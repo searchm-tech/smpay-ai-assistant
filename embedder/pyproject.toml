@@ -13,6 +13,9 @@ dependencies = [
     # 맥북과 데스크탑의 동작이 동일하다. Windows만 올리려면 transformers 상한도 함께 풀어야 함.
     "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "torch>=2.2.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "fastapi>=0.143.2",
+    "uvicorn>=0.54.0",
+    "python-dotenv>=1.2.4",
 ]
 
 [tool.uv]
@@ -21,3 +24,14 @@ environments = [
     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "sys_platform == 'win32'",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["slow: 실제 KURE-v1 모델을 로딩하는 느린 테스트 (RUN_SLOW=1 일 때만 실행)"]
